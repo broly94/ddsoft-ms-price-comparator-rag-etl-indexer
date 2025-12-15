@@ -1,0 +1,28 @@
+# Usa una imagen base de Node.js. La versión 20-slim es ligera y reciente.
+FROM node:20-slim as dependencies
+
+# Establece el directorio de trabajo dentro del contenedor.
+WORKDIR /usr/src/app
+
+# Copia package.json y package-lock.json (o pnpm-lock.yaml, etc.)
+COPY package*.json ./
+
+# Instala git y procps (necesario para el comando 'ps' que usa el watcher/nodemon).
+RUN apt-get update && \
+    apt-get install -y git procps && \
+    rm -rf /var/lib/apt/lists/*
+
+# Instala TODAS las dependencias, incluyendo las de desarrollo.
+RUN npm install
+
+RUN npm install -g nodemon ts-node typescript @nestjs/cli
+
+# --- STAGE 2: Desarrollo ---
+# Usamos el stage anterior para heredar las dependencias instaladas
+FROM dependencies AS development
+
+# Copia el resto del código fuente de tu aplicación.
+COPY . .
+
+# El comando por defecto para iniciar el contenedor.
+CMD ["npm", "run", "start:dev"]

@@ -1,0 +1,10 @@
+{
+    "watch": [
+        "src"
+    ],
+    "ext": "ts",
+    "execMap": {
+        "ts": "ts-node -r tsconfig-paths/register src/main.ts"
+    },
+    "legacyWatch": true
+}
