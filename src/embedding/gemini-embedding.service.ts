@@ -1,5 +1,5 @@
 // src/embedding/gemini-embedding.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, TaskType } from '@google/generative-ai';
 
@@ -10,9 +10,9 @@ interface EmbeddingBatchResult {
 }
 
 @Injectable()
-export class GeminiEmbeddingService {
+export class GeminiEmbeddingService implements OnModuleInit {
   private readonly logger = new Logger(GeminiEmbeddingService.name);
-  private readonly genAI: GoogleGenerativeAI;
+  private genAI: GoogleGenerativeAI;
   private readonly modelName = 'gemini-embedding-001';
 
   private readonly embeddingDimension = 3072;
@@ -24,18 +24,24 @@ export class GeminiEmbeddingService {
 
   // Para cumplir con el límite de 20 RPM, necesitamos un delay de al menos 3 segundos por batch (60s / 20 = 3s).
   // Se usa un valor ligeramente superior para tener un margen de seguridad.
-  private readonly delayBetweenBatches = 2000; // 3.1 segundos
+  private readonly delayBetweenBatches = 2000; // 2 segundos
 
-  constructor(private configService: ConfigService) {
-    // const apiKey = this.configService.get<string>('GOOGLE_GEMINI_API_KEY');
-    // if (!apiKey) {
-    //   throw new Error(
-    //     'La variable de entorno GOOGLE_GEMINI_API_KEY no está configurada.',
-    //   );
-    // }
-    this.genAI = new GoogleGenerativeAI(
-      'AIzaSyAv_VXpuXTTJB9vk3iydNRRM7c-zCieMvs',
-    );
+  constructor(private readonly configService: ConfigService) {}
+
+  onModuleInit() {
+    // En este punto, el ConfigService ya debe haber cargado el .env y el entorno Docker
+    const apiKey = this.configService.get<string>('GOOGLE_GEMINI_API_KEY');
+
+    if (!apiKey) {
+      // Ya que esto se ejecuta después del constructor, si falla, es un error de configuración
+      // pero el error se lanzará en un momento más seguro del ciclo de vida.
+      throw new Error(
+        'La variable de entorno GOOGLE_GEMINI_API_KEY no está configurada.',
+      );
+    }
+
+    // Inicialización que requiere la variable de entorno
+    this.genAI = new GoogleGenerativeAI(apiKey);
     this.logger.log(
       `Gemini Embedding Service inicializado - Modelo: ${this.modelName}, Dimensión: ${this.embeddingDimension}`,
     );
