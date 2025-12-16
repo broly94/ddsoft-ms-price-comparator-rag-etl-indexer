@@ -176,14 +176,7 @@ export class DataNormalizerService {
 
   private buildTextForEmbedding(product: any): string {
     return `
-      Código: ${product.codigo};
-      Rubro: ${product.rubro_descripcion};
-      Marca: ${product.marca};
-      Descripción: ${product.descripcion};
-      Peso: ${product.peso};
-      Stock Unidad: ${product.stock_unidad};
-      Stock Bultos: ${product.stock_bultos};
-      Precio: $${product.preciofinal};
+      ${product.marca} ${product.descripcion} ${product.peso};
     `
       .replace(/\n/g, ' ')
       .replace(/\s+/g, ' ')
