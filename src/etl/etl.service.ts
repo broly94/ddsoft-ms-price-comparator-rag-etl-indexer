@@ -1,45 +1,59 @@
-import { Inject, Injectable } from '@nestjs/common';
+// src/etl/etl.service.ts
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
-import { QdrantService } from '../qdrant/qdrant.service';
+import { BatchProcessorService } from '../batch-processor/batch-processor.service';
+import { GescomProduct } from '../normalizer/interfaces/gescom-product.interface';
 
 @Injectable()
 export class EtlService {
+  private readonly logger = new Logger(EtlService.name);
+
   constructor(
-    // Inyectamos el cliente para comunicarnos con gescom-data-access
     @Inject('GESCOM_SERVICE') private readonly gescomClient: ClientProxy,
-    private readonly qdrantService: QdrantService,
+    private readonly batchProcessor: BatchProcessorService,
   ) {}
 
   async runProductEtl() {
     try {
-      console.log('Iniciando proceso ETL de productos...');
+      this.logger.log('Iniciando proceso ETL de productos.');
 
-      // 1. Pedir los datos a gescom-data-access
-      console.log('Solicitando productos a gescom-data-access...');
-      const products = await firstValueFrom(
-        this.gescomClient.send({ cmd: 'get_simulated_products' }, {}),
+      // 1. Obtener productos
+      this.logger.log('Llamando a gescom-data-access para obtener productos...');
+      const startTime = Date.now();
+
+      const products: GescomProduct[] = await firstValueFrom(
+        this.gescomClient.send({ cmd: 'get_products' }, {}),
+      );
+
+      const fetchTime = (Date.now() - startTime) / 1000;
+      this.logger.log(
+        `Se obtuvieron ${
+          products?.length || 0
+        } productos en ${fetchTime}s.`,
       );
 
       if (!products || products.length === 0) {
-        console.log('No se recibieron productos de gescom-data-access. Finalizando ETL.');
-        return { message: 'No se encontraron productos para indexar.' };
+        this.logger.warn('No se recibieron productos. Proceso ETL finalizado.');
+        return { message: 'No hay productos para procesar.' };
       }
 
-      console.log(`Se recibieron ${products.length} productos.`);
+      // 2. Procesar todos los productos
+      this.logger.log(
+        `Iniciando procesamiento en batch para ${products.length} productos...`,
+      );
+      const fullStart = Date.now();
+      const fullResult = await this.batchProcessor.processProducts(products);
+      const fullTime = (Date.now() - fullStart) / 1000;
 
-      // 2. Indexar los datos en Qdrant
-      await this.qdrantService.upsertProducts(products);
-
-      console.log('Proceso ETL de productos completado exitosamente.');
-      return {
-        message: 'ETL completado. Productos indexados en Qdrant.',
-        productsCount: products.length,
-      };
+      this.logger.log(`Proceso completo en ${fullTime}s.`);
+      return fullResult;
     } catch (error) {
-      console.error('Ocurrió un error durante el proceso ETL:', error);
-      // Aquí podrías lanzar una excepción o manejar el error como prefieras
-      throw new Error('El proceso ETL falló.');
+      this.logger.error(
+        'Error crítico durante el proceso ETL.',
+        error.stack,
+      );
+      throw error;
     }
   }
 }

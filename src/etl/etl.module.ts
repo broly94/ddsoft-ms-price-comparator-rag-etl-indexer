@@ -3,19 +3,20 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { EtlController } from './etl.controller';
 import { EtlService } from './etl.service';
 import { QdrantModule } from '../qdrant/qdrant.module';
+import { ConfigModule } from '@nestjs/config';
+import { BatchProcessorModule } from '@/batch-processor/batch-processor.module';
 
 @Module({
   imports: [
-    // Importamos QdrantModule para tener acceso a QdrantService
-    QdrantModule,
-    // Configuramos el cliente para comunicarnos con el microservicio gescom-data-access
+    ConfigModule.forRoot(),
+    BatchProcessorModule,
     ClientsModule.register([
       {
-        name: 'GESCOM_SERVICE', // El mismo token que usamos para inyectar el cliente
+        name: 'GESCOM_SERVICE',
         transport: Transport.REDIS,
         options: {
-          host: process.env.REDIS_HOST || 'redis', // Usamos variable de entorno o el default
-          port: parseInt(process.env.REDIS_PORT as any, 10) || 6379,
+          host: process.env.REDIS_HOST || 'localhost',
+          port: parseInt(process.env.REDIS_PORT || '6379', 10),
         },
       },
     ]),
