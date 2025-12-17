@@ -10,7 +10,7 @@ export class QdrantService implements OnModuleInit {
   private readonly logger = new Logger(QdrantService.name);
   private readonly client: QdrantClient;
   private readonly collectionName = 'supermarket_products';
-  private readonly vectorSize = 3072; // Gemini embedding-001
+  private readonly vectorSize = 768; // Gemini embedding-001
 
   constructor(private configService: ConfigService) {
     const qdrantUrl =
