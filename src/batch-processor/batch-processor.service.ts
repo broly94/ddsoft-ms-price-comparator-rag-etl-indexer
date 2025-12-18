@@ -32,7 +32,9 @@ export class BatchProcessorService {
     try {
       // 1. Normalizar todos los productos
       this.logger.log('📊 Normalizando productos...');
-      const normalizedProducts = this.normalizer.normalizeProducts(products);
+      const normalizedProducts = this.normalizer.normalizeProducts(
+        products,
+      ) as any;
       this.logger.log(`✅ ${normalizedProducts.length} productos normalizados`);
 
       // 2. Procesar en batches

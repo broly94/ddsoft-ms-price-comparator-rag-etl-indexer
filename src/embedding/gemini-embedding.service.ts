@@ -13,8 +13,8 @@ interface EmbeddingBatchResult {
 export class GeminiEmbeddingService implements OnModuleInit {
   private readonly logger = new Logger(GeminiEmbeddingService.name);
   private genAI: GoogleGenerativeAI;
-  private readonly modelName = 'text-embedding-004';
-  private readonly embeddingDimension = 768;
+  private readonly modelName = 'gemini-embedding-001';
+  private readonly embeddingDimension = 3072;
 
   // Configuración de límites
   private readonly maxBatchSize = 100;

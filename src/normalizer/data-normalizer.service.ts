@@ -1,8 +1,10 @@
+
 // src/normalizer/data-normalizer.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { GescomProduct } from '@/normalizer/interfaces/gescom-product.interface';
 import { NormalizedProduct } from '@/normalizer/interfaces/normalized-product.interface';
 import { ProductPayload } from '@/normalizer/interfaces/product-payload.interface';
+import { abbreviations } from './abbreviations';
 
 @Injectable()
 export class DataNormalizerService {
@@ -25,6 +27,9 @@ export class DataNormalizerService {
     'texto_para_embedding',
   ];
 
+  // Objeto de abreviaciones para expandir descripciones
+  private readonly descriptionExpansions = abbreviations;
+
   normalizeProducts(products: GescomProduct[]): NormalizedProduct[] {
     this.logger.log(`Normalizando ${products.length} productos...`);
 
@@ -40,7 +45,7 @@ export class DataNormalizerService {
 
   private normalizeSingleProduct(product: GescomProduct): NormalizedProduct {
     // 1. Parsear descripción y marca
-    const { marca, descripcion } = this.parseDescription(product.Descripcion);
+    let { marca, descripcion } = this.parseDescription(product.Descripcion);
 
     // 2. Aplicar reglas de negocio
     const precioCosto = this.calculatePrecioCosto(
@@ -59,7 +64,10 @@ export class DataNormalizerService {
     // 4. Normalizar peso
     const pesoNormalizado = this.normalizeWeight(product.Calibre_Descripcion);
 
-    // 5. Crear texto para embedding
+    // 5. Expandir abreviaturas en la descripción (AHORA SE HACE ANTES)
+    descripcion = this.expandAbbreviations(descripcion);
+
+    // 6. Crear texto para embedding (usando la descripción ya expandida)
     const textoParaEmbedding = this.buildTextForEmbedding({
       codigo: product.Codigo,
       rubro_descripcion: product.Rubro_Descripcion,
@@ -71,7 +79,7 @@ export class DataNormalizerService {
       preciofinal: precioFinal,
     });
 
-    // 6. Construir objeto normalizado
+    // 7. Construir objeto normalizado
     return {
       codigo: this.cleanText(product.Codigo),
       descripcion: this.cleanText(descripcion),
@@ -142,41 +150,46 @@ export class DataNormalizerService {
 
     const pesoStr = peso.toUpperCase().replace(/\s+/g, '').replace(',', '.');
 
-    // Si es numérico (como 0.15), convertirlo a formato legible
-    const numMatch = pesoStr.match(/^(\d+\.?\d*)/);
+    // 1. Normalizar unidades de texto explícitas primero
+    const normalizedWithUnits = pesoStr
+      .replace(/KILOS?|KGS?|K$/, 'KG') // KILO, KILOS, KG, KGS, K -> KG
+      .replace(/GRAMOS?|GRS?/, 'G') // GRAMO, GRAMOS, GR, GRS -> G
+      .replace(/LITROS?|LTS?/, 'L') // LITRO, LITROS, LT, LTS -> L
+      .replace(/CC|CM3|MLITROS?/, 'ML'); // CC, CM3, MILILITRO, MILILITROS -> ML
+
+    // Si la normalización de texto cambió la cadena, es porque encontró una unidad.
+    if (normalizedWithUnits !== pesoStr || /[A-Z]/.test(normalizedWithUnits)) {
+      return normalizedWithUnits;
+    }
+
+    // 2. Si no hay unidades de texto, procesar como valor puramente numérico (asumiendo gramos o kg)
+    const numMatch = pesoStr.match(/^(\d+\.?\d*)$/);
     if (numMatch) {
       const numValue = parseFloat(numMatch[1]);
       if (numValue < 1) {
-        // Ej: 0.15 → 150G
-        const grams = numValue * 1000;
-        if (grams >= 1000) {
-          return grams % 1000 === 0
-            ? `${grams / 1000}KG`
-            : `${(grams / 1000).toFixed(1)}KG`;
-        }
-        return `${grams}G`;
-      } else {
-        // Ej: 150 → 150G
-        if (numValue >= 1000) {
-          return numValue % 1000 === 0
-            ? `${numValue / 1000}KG`
-            : `${(numValue / 1000).toFixed(1)}KG`;
-        }
-        return `${numValue}G`;
+        // Ej: 0.15 → 150G (asumiendo que es una fracción de KG)
+        return `${numValue * 1000}G`;
       }
+      // Ej: 150 → 150G, 1000 -> 1KG
+      if (numValue >= 1000 && numValue % 1000 === 0) {
+        return `${numValue / 1000}KG`;
+      }
+      return `${numValue}G`;
     }
 
-    // Normalizar unidades de texto
-    return pesoStr
-      .replace(/KILOS|KGS?$/, 'KG')
-      .replace(/GRAMOS|GRS?$/, 'G')
-      .replace(/LITROS|LTS?$/, 'L')
-      .replace(/CC|MLS?$/, 'ML');
+    // Si no coincide con nada, devolver la cadena original normalizada.
+    return normalizedWithUnits;
   }
 
   private buildTextForEmbedding(product: any): string {
+    // Divide la descripción en palabras, quita la última y las vuelve a unir.
+    const descriptionWithoutWeight = product.descripcion
+      .split(' ')
+      .slice(0, -1)
+      .join(' ');
+
     return `
-      ${product.marca} ${product.descripcion} ${product.peso};
+      Marca: ${product.marca}; Descripcion: ${descriptionWithoutWeight}; Calibre: ${product.peso};
     `
       .replace(/\n/g, ' ')
       .replace(/\s+/g, ' ')
@@ -221,12 +234,29 @@ export class DataNormalizerService {
     return null;
   }
 
-  buildProductPayload(product: NormalizedProduct): ProductPayload {
-    const unitCount = this.extractUnitCount(product.descripcion);
+  private expandAbbreviations(description: string): string {
+    let expandedDescription = description;
 
-    return {
-      ...product,
-      unidad_count: unitCount || undefined,
-    };
+    // Helper para escapar caracteres especiales en la abreviatura para usarla en un regex
+    const escapeRegExp = (str: string) =>
+      str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Iterar sobre el objeto de abreviaciones
+    for (const [abbreviation, fullText] of Object.entries(
+      this.descriptionExpansions,
+    )) {
+      const escapedAbbr = escapeRegExp(abbreviation);
+
+      // La regex busca la abreviatura como una palabra completa, permitiendo
+      // que esté rodeada por el inicio/fin de la cadena o por cualquier
+      // caracter que NO sea una letra o número (ej: espacio, punto, guion, barra).
+      const regex = new RegExp(`(^|\\W)${escapedAbbr}(\\W|$)`, 'gi');
+
+      // El reemplazo utiliza $1 y $2 para reinsertar los caracteres
+      // que rodean a la abreviatura, preservando el formato original.
+      expandedDescription = expandedDescription.replace(regex, `$1${fullText}$2`);
+    }
+
+    return expandedDescription;
   }
 }
