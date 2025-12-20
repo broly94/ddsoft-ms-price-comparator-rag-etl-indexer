@@ -182,14 +182,28 @@ export class DataNormalizerService {
   }
 
   private buildTextForEmbedding(product: any): string {
-    // Divide la descripción en palabras, quita la última y las vuelve a unir.
-    const descriptionWithoutWeight = product.descripcion
-      .split(' ')
-      .slice(0, -1)
-      .join(' ');
+    const words = product.descripcion.split(' ');
+    const lastPart = words.length > 1 ? words[words.length - 1] : '';
+
+    let calibre: string;
+    // La descripción para el embedding casi siempre omite la última parte, que suele ser el gramaje.
+    const descriptionForEmbedding = words.slice(0, -1).join(' ');
+
+    // Regex para identificar formatos de unidad como "40un", "12u", "1uni", "50unidades".
+    const unitRegex = /^\d+(u|un|uni|unidad|unidades)$/i;
+
+    if (lastPart && unitRegex.test(lastPart)) {
+      // Si la última parte de la descripción coincide con el formato de unidad,
+      // la usamos como el "Calibre" para el embedding.
+      calibre = lastPart;
+    } else {
+      // Si no coincide, usamos el campo 'peso' normalizado como "Calibre".
+      // Esto maneja casos como "500G", "1KG", etc., que vienen del campo `product.peso`.
+      calibre = product.peso;
+    }
 
     return `
-      Marca: ${product.marca}; Descripcion: ${descriptionWithoutWeight}; Calibre: ${product.peso};
+      Marca: ${product.marca}; Descripcion: ${descriptionForEmbedding}; Calibre: ${calibre};
     `
       .replace(/\n/g, ' ')
       .replace(/\s+/g, ' ')
